@@ -1,0 +1,21 @@
+{
+  "name": "agent-service",
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc",
+    "start": "node dist/index.js"
+  },
+  "dependencies": {
+    "@hono/node-server": "^1.13.7",
+    "@neondatabase/serverless": "^0.10.4",
+    "drizzle-orm": "^0.39.1",
+    "hono": "^4.6.3"
+  },
+  "devDependencies": {
+    "@types/node": "^22.7.7",
+    "tsx": "^4.19.2",
+    "typescript": "^5.6.3"
+  }
+}
