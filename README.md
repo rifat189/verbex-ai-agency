@@ -374,9 +374,3 @@ The `NEXT_PUBLIC_*` variables are exposed to the browser. All others remain serv
 **Microservice separation:** The three services map to three distinct domains with different scaling characteristics. The chat-service handles the highest traffic and can be scaled independently. Each service can be deployed, restarted, and reasoned about without touching the others.
 
 **OpenRouter:** A single API that routes to dozens of LLM providers. Free models require no billing setup. The OpenAI-compatible interface means the standard `openai` SDK works with only a `baseURL` change.
-
----
-
-## License
-
-MIT
