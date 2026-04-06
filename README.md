@@ -1,10 +1,10 @@
-# AgentForge — AI Agent Management Platform
+# Verbex AI Agency
 
-A SaaS platform where users sign up, create AI chatbot "agents", and embed them on any website via an iframe.
+A multi-service SaaS platform for creating, managing, and deploying AI chatbot agents. Users sign up, configure agents with custom system prompts and models, and embed them on any website via an iframe.
 
 ---
 
-## Architecture Diagram
+## Architecture
 
 ```
                           ┌─────────────┐
@@ -34,177 +34,190 @@ A SaaS platform where users sign up, create AI chatbot "agents", and embed them 
                                             └──────────────┘
 ```
 
-**Inter-service calls:**
-- `chat-service` → `agent-service /agents/public/:id` — validate agent before chat
-- `chat-service` → `auth-service /auth/verify-apikey` — validate programmatic API key
-- `agent-service` → `chat-service /conversations/:id/analytics` — fetch analytics data
+The platform is split into three independent Hono services:
+
+- **auth-service** — user registration, login, JWT issuance, and API key verification
+- **agent-service** — agent CRUD, API key management, and analytics aggregation
+- **chat-service** — conversation handling, message history, LLM calls via OpenRouter, and webhook dispatch
+
+Inter-service communication runs over plain HTTP. Each service owns its domain and its database tables exclusively.
 
 ---
 
-## Setup Instructions
+## Tech Stack
 
-### Prerequisites
+| Layer | Technology |
+|---|---|
+| Backend | Node.js + Hono (TypeScript) |
+| Database | NeonDB (serverless Postgres) via Drizzle ORM |
+| Frontend | Next.js 15 (TypeScript) |
+| LLM | OpenRouter API (free models) |
+| Package Manager | pnpm |
+| Containerization | Docker + Docker Compose |
 
-- Node.js 20+
+---
+
+## Prerequisites
+
+- Node.js 20 or later
 - pnpm (`npm install -g pnpm`)
-- Docker + Docker Compose (for Docker path)
-- A [NeonDB](https://neon.tech) account (free tier works)
-- An [OpenRouter](https://openrouter.ai) account (free, no credit card needed for free models)
+- Docker and Docker Compose
+- A [NeonDB](https://neon.tech) account (free tier is sufficient)
+- An [OpenRouter](https://openrouter.ai) account (free, no credit card required for free models)
 
-### Step 1: Clone & Configure
+---
+
+## Setup
+
+### 1. Clone and configure
 
 ```bash
-git clone <repo-url>
-cd agentforge
+git clone https://github.com/your-username/verbex-ai-agency.git
+cd verbex-ai-agency
 cp .env.example .env
 ```
 
-Edit `.env` and fill in:
-- `DATABASE_URL` — your Neon connection string (from Neon dashboard → Connection Details)
-- `JWT_SECRET` — any long random string (e.g. `openssl rand -hex 32`)
-- `OPENROUTER_API_KEY` — from [openrouter.ai/keys](https://openrouter.ai/keys)
+Open `.env` and fill in the following values:
 
-### Step 2: Initialize the Database
+```env
+DATABASE_URL=postgresql://...          # Neon connection string
+JWT_SECRET=your-random-secret          # Any long random string
+OPENROUTER_API_KEY=sk-or-...           # From openrouter.ai/keys
 
-Run the migration SQL once against your NeonDB:
+AUTH_SERVICE_URL=http://auth-service:8081
+AGENT_SERVICE_URL=http://agent-service:8082
+CHAT_SERVICE_URL=http://chat-service:8083
+
+NEXT_PUBLIC_AUTH_URL=http://localhost:8081
+NEXT_PUBLIC_AGENT_URL=http://localhost:8082
+NEXT_PUBLIC_CHAT_URL=http://localhost:8083
+```
+
+### 2. Initialize the database
+
+Run the migration once against your NeonDB instance. The easiest method is to open the Neon dashboard, navigate to the SQL Editor, and paste the contents of `migrate.sql`. Alternatively:
 
 ```bash
-# Option A: paste into the Neon SQL editor in the dashboard
-cat migrate.sql
-
-# Option B: run via psql
 psql "$DATABASE_URL" -f migrate.sql
 ```
 
-### Path A: Docker (recommended)
+### 3. Start with Docker (recommended)
 
 ```bash
 docker-compose up --build
 ```
 
-All four services start automatically. Visit `http://localhost:3000`.
+All four services start automatically. The application is available at `http://localhost:3000`.
 
-### Path B: Manual `pnpm dev` (each service in a separate terminal)
+### 4. Start manually (development)
+
+Run each service in a separate terminal:
 
 ```bash
-# Terminal 1 — auth-service
-cd services/auth-service
-pnpm install
-pnpm dev
+# Terminal 1
+cd services/auth-service && pnpm install && pnpm dev
 
-# Terminal 2 — agent-service
-cd services/agent-service
-pnpm install
-pnpm dev
+# Terminal 2
+cd services/agent-service && pnpm install && pnpm dev
 
-# Terminal 3 — chat-service
-cd services/chat-service
-pnpm install
-pnpm dev
+# Terminal 3
+cd services/chat-service && pnpm install && pnpm dev
 
-# Terminal 4 — frontend
-cd frontend
-pnpm install
-pnpm dev
+# Terminal 4
+cd frontend && pnpm install && pnpm dev
 ```
 
-Visit `http://localhost:3000`.
-
-> **Note:** When running manually, the inter-service URLs default to `localhost`. Make sure all four are running before using the frontend.
+When running manually, all four processes must be running before using the frontend. Inter-service URLs default to `localhost` in this mode.
 
 ---
 
-## API Documentation
+## API Reference
 
-All error responses follow `{ "error": "message" }`. All success responses follow `{ "data": { ... } }`.
+All responses follow a consistent envelope:
 
-### auth-service (port 8081)
+```json
+{ "data": { ... } }        // success
+{ "error": "message" }     // failure
+```
 
-#### `POST /auth/signup`
+### auth-service — port 8081
+
+#### POST /auth/signup
 ```json
 // Request
 { "email": "user@example.com", "password": "secret123" }
 
 // Response 200
 { "data": { "token": "eyJ..." } }
-
-// Error 400
-{ "error": "Email already in use" }
 ```
 
-#### `POST /auth/login`
+#### POST /auth/login
 ```json
 // Request
 { "email": "user@example.com", "password": "secret123" }
 
 // Response 200
 { "data": { "token": "eyJ..." } }
-
-// Error 401
-{ "error": "Invalid credentials" }
 ```
 
-#### `GET /auth/verify`
+#### GET /auth/verify
 ```
-Headers: Authorization: Bearer <token>
+Authorization: Bearer <token>
 
 // Response 200
 { "data": { "userId": "uuid", "email": "user@example.com" } }
-
-// Error 401
-{ "error": "Invalid or expired token" }
 ```
 
-#### `GET /auth/verify-apikey`
+#### GET /auth/verify-apikey
 ```
-Headers: x-api-key: <raw_key>
+x-api-key: <raw_key>
 
 // Response 200
 { "data": { "userId": "uuid" } }
-
-// Error 401
-{ "error": "Invalid API key" }
 ```
 
 ---
 
-### agent-service (port 8082)
+### agent-service — port 8082
 
-All routes except `/agents/public/:id` require `Authorization: Bearer <token>`.
+All routes require `Authorization: Bearer <token>` except `GET /agents/public/:id`.
 
-#### `POST /agents`
+#### POST /agents
 ```json
-// Request
 {
   "name": "Support Bot",
-  "system_prompt": "You are a helpful customer support agent...",
+  "system_prompt": "You are a helpful support agent...",
   "temperature": 0.7,
   "model": "stepfun-ai/step-3.5-flash:free",
   "webhook_url": "https://example.com/webhook"
 }
-
-// Response 201
-{ "data": { "agent": { "id": "uuid", "name": "Support Bot", ... } } }
+// Response 201: { "data": { "agent": { ... } } }
 ```
 
-#### `GET /agents`
+#### GET /agents
 ```json
-// Response 200
-{ "data": { "agents": [ { "id": "uuid", "name": "Support Bot", ... } ] } }
+// Response 200: { "data": { "agents": [ ... ] } }
 ```
 
-#### `GET /agents/:id`
+#### GET /agents/:id
 ```json
-// Response 200
-{ "data": { "agent": { "id": "uuid", "name": "...", "systemPrompt": "...", ... } } }
+// Response 200: { "data": { "agent": { ... } } }
 ```
 
-#### `DELETE /agents/:id`
+#### PATCH /agents/:id
+```json
+// Partial update — send only the fields to change
+{ "name": "New Name", "temperature": 0.5 }
+// Response 200: { "data": { "agent": { ... } } }
+```
+
+#### DELETE /agents/:id
 ```
 // Response 204 No Content
 ```
 
-#### `GET /agents/public/:id` — No auth required
+#### GET /agents/public/:id
+Public — no authentication required. Used by the embedded chat widget.
 ```json
 // Response 200
 {
@@ -219,7 +232,7 @@ All routes except `/agents/public/:id` require `Authorization: Bearer <token>`.
 }
 ```
 
-#### `GET /agents/:id/analytics`
+#### GET /agents/:id/analytics
 ```json
 // Response 200
 {
@@ -231,14 +244,14 @@ All routes except `/agents/public/:id` require `Authorization: Bearer <token>`.
 }
 ```
 
-#### `POST /apikeys`
+#### POST /apikeys
+Generates a new API key. If one already exists, it is revoked and replaced. The raw key is returned exactly once — it cannot be retrieved again.
 ```json
 // Response 200
-{ "data": { "key": "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx-xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" } }
-// ⚠ This is shown only once. Store it securely.
+{ "data": { "key": "xxxxxxxx-xxxx-..." } }
 ```
 
-#### `GET /apikeys`
+#### GET /apikeys
 ```json
 // Response 200
 { "data": { "hasKey": true, "createdAt": "2025-01-10T09:00:00Z" } }
@@ -246,33 +259,44 @@ All routes except `/agents/public/:id` require `Authorization: Bearer <token>`.
 
 ---
 
-### chat-service (port 8083)
+### chat-service — port 8083
 
-#### `POST /chat`
+#### POST /chat
+Accepts both public requests and programmatic requests authenticated with an API key.
 ```json
-// Request (public — no auth needed)
+// Request
 {
   "agentId": "uuid",
   "message": "Hello, I need help",
-  "conversationId": "uuid"  // optional — omit for new conversation
+  "conversationId": "uuid"
 }
 
-// Request (programmatic — with API key)
-// Headers: x-api-key: <your_raw_api_key>
-// Body: same as above
+// Programmatic: add header x-api-key: <raw_key>
 
 // Response 200
 {
   "data": {
-    "reply": "Hi! How can I help you today?",
+    "reply": "Hi, how can I help?",
+    "followUps": ["Explore topic A", "See an example", "Explain in detail"],
     "conversationId": "uuid"
   }
 }
 ```
 
-#### `GET /conversations/:agentId`
+#### POST /chat/stream
+Same request body as `POST /chat`. Returns a Server-Sent Events stream. Events:
+
 ```
-Headers: Authorization: Bearer <token>
+data: {"conversationId": "uuid"}
+data: {"token": "Hi"}
+data: {"token": ", how"}
+data: {"followUps": ["...", "...", "..."]}
+data: [DONE]
+```
+
+#### GET /conversations/:agentId
+```
+Authorization: Bearer <token>
 
 // Response 200
 {
@@ -287,9 +311,9 @@ Headers: Authorization: Bearer <token>
 }
 ```
 
-#### `GET /conversations/:conversationId/messages`
+#### GET /conversations/:conversationId/messages
 ```
-Headers: Authorization: Bearer <token>
+Authorization: Bearer <token>
 
 // Response 200
 {
@@ -306,44 +330,53 @@ Headers: Authorization: Bearer <token>
 
 ## Embedding a Chat Widget
 
-Every agent has a public chat page at `/chat/<agentId>`. Embed it anywhere:
+Every agent has a public chat page at `/chat/<agentId>`. Embed it on any website:
 
 ```html
 <iframe
-  src="https://yourapp.com/chat/AGENT_ID_HERE"
+  src="https://your-domain.com/chat/AGENT_ID_HERE"
   width="400"
   height="600"
   style="border: none; border-radius: 12px;"
 ></iframe>
 ```
 
-No authentication required — the chat page is fully public.
+No authentication is required. The chat page is fully public.
 
 ---
 
-## AI Tools Usage
+## Environment Variables
 
-**Tools used:**
-- Claude Sonnet 4.6 — architecture planning, all code generation, debugging
+| Variable | Description |
+|---|---|
+| `DATABASE_URL` | NeonDB PostgreSQL connection string |
+| `JWT_SECRET` | Secret used to sign and verify JWTs |
+| `OPENROUTER_API_KEY` | API key from openrouter.ai |
+| `AUTH_SERVICE_URL` | Internal URL for auth-service |
+| `AGENT_SERVICE_URL` | Internal URL for agent-service |
+| `CHAT_SERVICE_URL` | Internal URL for chat-service |
+| `NEXT_PUBLIC_AUTH_URL` | Browser-facing URL for auth-service |
+| `NEXT_PUBLIC_AGENT_URL` | Browser-facing URL for agent-service |
+| `NEXT_PUBLIC_CHAT_URL` | Browser-facing URL for chat-service |
 
-**Estimated time saved:** ~20–25 hours. A full-stack microservices project with this scope would typically take 2–3 days solo. With AI assistance, the core implementation was completed in a fraction of the time.
-
-**One example helpful prompt:**
-> "Write the Hono route handler for POST /chat that: validates agentId via agent-service, optionally checks x-api-key via auth-service, creates or reuses a conversation, fires the webhook fire-and-forget on new conversations, builds the last-10-message context window with the system prompt prepended, calls OpenRouter, saves both messages, and returns { reply, conversationId } — following the { data: ... } / { error: ... } response format throughout."
-
-**One challenge faced:**
-Route ordering in Hono — `/agents/public/:id` needs to be registered *before* `/agents/:id`, otherwise the string `"public"` gets captured as the `:id` param. Fixed by rewriting the agent-service to use a flat Hono app rather than a sub-router, ensuring explicit route registration order.
+The `NEXT_PUBLIC_*` variables are exposed to the browser. All others remain server-side only.
 
 ---
 
-## Tech Choices
+## Design Decisions
 
-**Hono over Express/Fastify:** Hono is edge-native, has first-class TypeScript support, and its router is extremely fast. The middleware API is clean and the request/response model is based on the standard Fetch API — making it easy to deploy to any runtime (Node, Deno, Bun, Workers) with zero changes.
+**Hono over Express:** Hono is built on the standard Fetch API, has first-class TypeScript support, and runs on any JavaScript runtime without modification. Its router is explicit and predictable — route registration order is transparent, which matters when distinguishing `/agents/public/:id` from `/agents/:id`.
 
-**NeonDB:** Serverless Postgres that scales to zero. No connection pooling to manage, no always-on compute cost. The `@neondatabase/serverless` driver works over HTTP, which is ideal for stateless microservices. Free tier is generous for development and small production workloads.
+**NeonDB:** Serverless Postgres that scales to zero between requests. The HTTP-based driver works well for stateless microservices without requiring persistent connection pools. The free tier covers development and moderate production traffic.
 
-**Drizzle ORM:** Type-safe SQL with zero "magic". Drizzle gives you full TypeScript autocomplete on queries while keeping the SQL readable. Lightweight, fast, and doesn't hide what queries it runs.
+**Drizzle ORM:** Provides full TypeScript inference over queries while keeping the SQL close to the surface. There is no hidden query generation — what you write is what executes.
 
-**Microservice architecture:** The three services map cleanly to the three domains (auth, agents, chat). Each can be scaled, deployed, and reasoned about independently. The chat-service — the highest-traffic service — can be scaled horizontally without touching auth or agent management. Inter-service communication via plain HTTP keeps the coupling loose.
+**Microservice separation:** The three services map to three distinct domains with different scaling characteristics. The chat-service handles the highest traffic and can be scaled independently. Each service can be deployed, restarted, and reasoned about without touching the others.
 
-**OpenRouter:** Single API that proxies to dozens of free LLM providers. No billing setup, no vendor lock-in. The OpenAI-compatible interface means the `openai` npm package works out of the box with just a `baseURL` swap.
+**OpenRouter:** A single API that routes to dozens of LLM providers. Free models require no billing setup. The OpenAI-compatible interface means the standard `openai` SDK works with only a `baseURL` change.
+
+---
+
+## License
+
+MIT
